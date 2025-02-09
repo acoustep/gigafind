@@ -19,6 +19,7 @@ var (
 
 func main() {
 	var path string
+	var host string
 	var size int
 	var debug bool
 	var googlechaturl string
@@ -55,6 +56,13 @@ func main() {
 				Destination: &googlechaturl,
 				Value:       "",
 			},
+			&cli.StringFlag{
+				Name:        "host",
+				Aliases:     []string{"H"},
+				Usage:       "Name of the server to pass to webhooks",
+				Destination: &host,
+				Value:       "",
+			},
 		},
 		Action: func(cCtx *cli.Context) error {
 			// Set up a command to run
@@ -89,7 +97,7 @@ func main() {
 			for size, path := range Temp {
 				fmt.Println(size, path)
 			}
-			SendNotification(googlechaturl, debug)
+			SendNotification(googlechaturl, debug, host)
 			return nil
 		},
 	}
@@ -122,7 +130,7 @@ func ConvertFileSizeToMb(fileSize string) float64 {
 	return sizeToNumber
 }
 
-func SendNotification(googlechaturl string, debug bool) {
+func SendNotification(googlechaturl string, debug bool, host string) {
 	if googlechaturl == "" {
 		fmt.Println("[INFO] No Google Chat webhook was provided.")
 		return
@@ -133,7 +141,17 @@ func SendNotification(googlechaturl string, debug bool) {
 		}
 		return
 	}
-	json := []byte(`{"text": "test"}`)
+	var text strings.Builder
+	text.WriteString("{\"text\": \"")
+	if host != "" {
+		text.WriteString(host)
+		text.WriteString("\n\n")
+	}
+	for path, size := range Temp {
+		text.WriteString(fmt.Sprintf("* %s: %.2fM\n", path, size))
+	}
+	text.WriteString("\"}")
+	json := []byte(text.String())
 	body := bytes.NewBuffer(json)
 	client := &http.Client{}
 	req, err := http.NewRequest("POST", googlechaturl, body)
