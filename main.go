@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/urfave/cli/v2"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
@@ -18,6 +21,7 @@ func main() {
 	var path string
 	var size int
 	var debug bool
+	var googlechaturl string
 
 	app := &cli.App{
 		Name:  "run",
@@ -43,6 +47,13 @@ func main() {
 				Aliases:     []string{"d"},
 				Destination: &debug,
 				Value:       false,
+			},
+			&cli.StringFlag{
+				Name:        "googlechat",
+				Aliases:     []string{"g"},
+				Usage:       "The Google Chat webhook to send results to",
+				Destination: &googlechaturl,
+				Value:       "",
 			},
 		},
 		Action: func(cCtx *cli.Context) error {
@@ -78,7 +89,7 @@ func main() {
 			for size, path := range Temp {
 				fmt.Println(size, path)
 			}
-			SendNotification()
+			SendNotification(googlechaturl, debug)
 			return nil
 		},
 	}
@@ -111,6 +122,43 @@ func ConvertFileSizeToMb(fileSize string) float64 {
 	return sizeToNumber
 }
 
-func SendNotification() {
+func SendNotification(googlechaturl string, debug bool) {
+	if googlechaturl == "" {
+		fmt.Println("[INFO] No Google Chat webhook was provided.")
+		return
+	}
+	if len(Temp) == 0 {
+		if debug {
+			fmt.Println("[INFO] No results so no Google Chat webhook was sent.")
+		}
+		return
+	}
+	json := []byte(`{"text": "test"}`)
+	body := bytes.NewBuffer(json)
+	client := &http.Client{}
+	req, err := http.NewRequest("POST", googlechaturl, body)
+	req.Header.Add("Content-Type", "application/json")
+	parseFormErr := req.ParseForm()
+	if parseFormErr != nil {
+		fmt.Println(parseFormErr)
+	}
+
+	// Fetch Request
+	resp, err := client.Do(req)
+
+	if err != nil {
+		fmt.Println("Failure : ", err)
+	}
+	// Read Response Body
+	if debug {
+		respBody, _ := io.ReadAll(resp.Body)
+
+		// Display Results
+		fmt.Println("response Status : ", resp.Status)
+		fmt.Println("response Headers : ", resp.Header)
+		fmt.Println("response Body : ", string(respBody))
+	}
+
+	return
 
 }
