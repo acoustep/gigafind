@@ -2,45 +2,115 @@ package main
 
 import (
 	"fmt"
+	"github.com/urfave/cli/v2"
+	"log"
+	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
 var (
-	Temp = map[string]string{}
+	Temp = map[string]float64{}
 )
 
 func main() {
-	// Set up a command to run
-	cmd := "find . -type f -not '(' -path '*/.git/*' -or -path '*/node_modules/*' -or -path '*/vendor/*'  -or -path '*/.build/*' -or -path '*/tmp/*' -or -path '*/.*/*' ')' -exec ls -alh {} \\; | sort -hr -k5 | head -n 25"
-	stdout, err := exec.Command("bash", "-c", cmd).Output()
-	if err != nil {
-		fmt.Printf("Failed to execute command: %s %s", err.Error(), cmd)
-		return
-	}
-	// cmd := exec.Command("du", "-h", "-hd1", "/users/mitchellstanley/Code/go")
-	//cmd := exec.Command("find", ".", "-type", "f", "-not", "'(' -path '*/.git/*' -or -path '*/node_modules/*' -or -path '*/vendor/*'  -or -path '*/.build/*'  -or -path '*/tmp/*' ')'", "-exec", "ls", "-alh", "{}", "\\;", "|", "sort", "-hr", "-k5", "|", "head", "-n", "25")
-	//stdout, err := cmd.Output()
+	var path string
+	var size int
+	var debug bool
 
-	//if err != nil {
-	//	fmt.Println(err.Error())
-	//	return
-	//}
+	app := &cli.App{
+		Name:  "run",
+		Usage: "Find files that are large",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:        "path",
+				Aliases:     []string{"p"},
+				Usage:       "Search the selected path",
+				Destination: &path,
+				Value:       ".",
+			},
+			&cli.IntFlag{
+				Name:        "size",
+				Aliases:     []string{"s"},
+				Usage:       "The size of the files to show in MB. Anything below is ignored",
+				Destination: &size,
+				Value:       200,
+			},
+			&cli.BoolFlag{
+				Name:        "debug",
+				Usage:       "verbose output",
+				Aliases:     []string{"d"},
+				Destination: &debug,
+				Value:       false,
+			},
+		},
+		Action: func(cCtx *cli.Context) error {
+			// Set up a command to run
+			sizeToFloat := float64(size)
+			cmd := fmt.Sprintf("find %s -type f -not '(' -path '*/.git/*' -or -path '*/node_modules/*' -or -path '*/vendor/*'  -or -path '*/.build/*' -or -path '*/tmp/*' -or -path '*/.*/*' ')' -exec ls -alh {} \\; | sort -hr -k5 | head -n 25", path)
+			if debug {
+				fmt.Println("[INFO]", cmd)
+			}
+			stdout, err := exec.Command("bash", "-c", cmd).Output()
+			if err != nil {
+				fmt.Printf("Failed to execute command: %s %s", err.Error(), cmd)
+				return nil
+			}
 
-	// TODO: filter out directories and show files above certain file size
-	lines := strings.Split(string(stdout), "\n")
-	for _, line := range lines {
-		l := strings.Fields(line)
-		if len(l) < 2 {
-			break
-		}
-		path := l[8]
-		size := l[4]
-		Temp[path] = size
-	}
-	// Print the output
+			lines := strings.Split(string(stdout), "\n")
+			for _, line := range lines {
+				l := strings.Fields(line)
+				if len(l) < 2 {
+					break
+				}
+				path := l[8]
+				fileSize := l[4]
 
-	for size, path := range Temp {
-		fmt.Println(size, path)
+				sizeToNumber := ConvertFileSizeToMb(fileSize)
+
+				if sizeToNumber >= sizeToFloat {
+					Temp[path] = sizeToNumber
+				}
+			}
+			// Print the output
+
+			for size, path := range Temp {
+				fmt.Println(size, path)
+			}
+			SendNotification()
+			return nil
+		},
 	}
+	if err := app.Run(os.Args); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func ConvertFileSizeToMb(fileSize string) float64 {
+	var sizeToNumber float64
+	if strings.Contains(fileSize, "K") {
+		fileSize = strings.Replace(fileSize, "K", "", -1)
+		sizeToNumber, _ = strconv.ParseFloat(fileSize, 64)
+		sizeToNumber = sizeToNumber / 1024
+
+	} else if strings.Contains(fileSize, "M") {
+		fileSize = strings.Replace(fileSize, "M", "", -1)
+		sizeToNumber, _ = strconv.ParseFloat(fileSize, 64)
+		sizeToNumber = sizeToNumber
+	} else if strings.Contains(fileSize, "G") {
+		fileSize = strings.Replace(fileSize, "G", "", -1)
+		sizeToNumber, _ = strconv.ParseFloat(fileSize, 64)
+		sizeToNumber = sizeToNumber * 1024
+	} else {
+		// Bytes
+		fileSize = strings.Replace(fileSize, "B", "", -1)
+		sizeToNumber, _ = strconv.ParseFloat(fileSize, 64)
+		sizeToNumber = sizeToNumber / 1024 / 1024
+	}
+	return sizeToNumber
+}
+
+func SendNotification() {
+
 }
