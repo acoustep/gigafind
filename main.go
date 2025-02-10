@@ -127,7 +127,6 @@ func ConvertFileSizeToMb(fileSize string) float64 {
 	} else if strings.Contains(fileSize, "M") {
 		fileSize = strings.Replace(fileSize, "M", "", -1)
 		sizeToNumber, _ = strconv.ParseFloat(fileSize, 64)
-		sizeToNumber = sizeToNumber
 	} else if strings.Contains(fileSize, "G") {
 		fileSize = strings.Replace(fileSize, "G", "", -1)
 		sizeToNumber, _ = strconv.ParseFloat(fileSize, 64)
