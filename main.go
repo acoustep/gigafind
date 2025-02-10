@@ -22,7 +22,7 @@ func main() {
 	var host string
 	var size int
 	var debug bool
-	var googlechaturl string
+	var googleChatUrl string
 
 	app := &cli.App{
 		Name:  "run",
@@ -50,10 +50,10 @@ func main() {
 				Value:       false,
 			},
 			&cli.StringFlag{
-				Name:        "googlechat",
+				Name:        "google-chat",
 				Aliases:     []string{"g"},
 				Usage:       "The Google Chat webhook to send results to",
-				Destination: &googlechaturl,
+				Destination: &googleChatUrl,
 				Value:       "",
 			},
 			&cli.StringFlag{
@@ -108,7 +108,7 @@ func main() {
 			for size, path := range Temp {
 				fmt.Println(size, path)
 			}
-			SendNotification(googlechaturl, debug, host)
+			SendNotification(googleChatUrl, debug, host)
 			return nil
 		},
 	}
@@ -140,8 +140,8 @@ func ConvertFileSizeToMb(fileSize string) float64 {
 	return sizeToNumber
 }
 
-func SendNotification(googlechaturl string, debug bool, host string) {
-	if googlechaturl == "" {
+func SendNotification(googleChatUrl string, debug bool, host string) {
+	if googleChatUrl == "" {
 		fmt.Println("[INFO] No Google Chat webhook was provided.")
 		return
 	}
@@ -164,7 +164,7 @@ func SendNotification(googlechaturl string, debug bool, host string) {
 	json := []byte(text.String())
 	body := bytes.NewBuffer(json)
 	client := &http.Client{}
-	req, err := http.NewRequest("POST", googlechaturl, body)
+	req, _ := http.NewRequest("POST", googleChatUrl, body)
 	req.Header.Add("Content-Type", "application/json")
 	parseFormErr := req.ParseForm()
 	if parseFormErr != nil {
@@ -186,7 +186,5 @@ func SendNotification(googlechaturl string, debug bool, host string) {
 		fmt.Println("response Headers : ", resp.Header)
 		fmt.Println("response Body : ", string(respBody))
 	}
-
-	return
 
 }
