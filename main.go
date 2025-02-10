@@ -63,11 +63,22 @@ func main() {
 				Destination: &host,
 				Value:       "",
 			},
+			&cli.StringSliceFlag{
+				Name:        "exclude",
+				Usage:       "Pass multiple excluded directories",
+				DefaultText: "--exclude \"*/.git/*\"",
+			},
 		},
 		Action: func(cCtx *cli.Context) error {
 			// Set up a command to run
 			sizeToFloat := float64(size)
-			cmd := fmt.Sprintf("find %s -type f -not '(' -path '*/.git/*' -or -path '*/node_modules/*' -or -path '*/vendor/*'  -or -path '*/.build/*' -or -path '*/tmp/*' -or -path '*/.*/*' ')' -exec ls -alh {} \\; | sort -hr -k5 | head -n 25", path)
+			ignoredDirectories := cCtx.StringSlice("exclude")
+			var ignoredDirectoryBuilder strings.Builder
+			for _, ignoredDirectory := range ignoredDirectories {
+				ignoredDirectoryBuilder.WriteString(fmt.Sprintf(" -or -path '%s'", ignoredDirectory))
+			}
+
+			cmd := fmt.Sprintf("find %s -type f -not '(' -path '*/.git/*' -or -path '*/node_modules/*' -or -path '*/vendor/*'  -or -path '*/.build/*' -or -path '*/tmp/*' -or -path '*/.*/*' %s ')' -exec ls -alh {} \\; | sort -hr -k5 | head -n 25", path, ignoredDirectoryBuilder.String())
 			if debug {
 				fmt.Println("[INFO]", cmd)
 			}
