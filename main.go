@@ -20,13 +20,20 @@ var (
 func main() {
 	var path string
 	var host string
-	var size int
+	var minimumFileSize string
 	var debug bool
 	var googleChatUrl string
 
+	cli.VersionFlag = &cli.BoolFlag{
+		Name:    "print-version",
+		Aliases: []string{"V"},
+		Usage:   "print only the version",
+	}
+
 	app := &cli.App{
-		Name:  "run",
-		Usage: "Find files that are large",
+		Name:    "run",
+		Version: "v0.2.5",
+		Usage:   "Find files that are large",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:        "path",
@@ -35,13 +42,14 @@ func main() {
 				Destination: &path,
 				Value:       ".",
 			},
-			&cli.IntFlag{
-				Name:        "size",
-				Aliases:     []string{"s"},
-				Usage:       "The size of the files to show in MB. Anything below is ignored",
-				Destination: &size,
-				Value:       200,
+			&cli.StringFlag{
+				Name:        "minimum-file-size",
+				Aliases:     []string{"m"},
+				Usage:       "The minimum file size of the files to show. Anything below is ignored",
+				Destination: &minimumFileSize,
+				Value:       "200MB",
 			},
+
 			&cli.BoolFlag{
 				Name:        "debug",
 				Usage:       "verbose output",
@@ -70,8 +78,30 @@ func main() {
 			},
 		},
 		Action: func(cCtx *cli.Context) error {
-			// Set up a command to run
-			sizeToFloat := float64(size)
+			// First lets get the unit type from the minimum file type.
+			// This will be anything from byte to Gigabyte
+			preferredUnit := "M"
+			if strings.Contains(minimumFileSize, "G") {
+				preferredUnit = "G"
+			} else if strings.Contains(minimumFileSize, "K") {
+				preferredUnit = "K"
+			} else if strings.Contains(minimumFileSize, "B") {
+				preferredUnit = "B"
+			}
+
+			// Now we try to get the actual number. We do this by stripping out the unit (e.g. MB)
+			// Then parsing as an integer
+			replacer := strings.NewReplacer("K", "", "G", "", "M", "", "B", "")
+			minimumFileSizeStripped := replacer.Replace(minimumFileSize)
+			minimumFileSizeToInt, err := strconv.ParseInt(minimumFileSizeStripped, 10, 64)
+
+			if err != nil {
+				log.Fatalln("Could not parse number")
+				return nil
+			}
+
+			//	// Set up a command to run
+			minimumFileSizeAsFloat := float64(minimumFileSizeToInt)
 			ignoredDirectories := cCtx.StringSlice("exclude")
 			var ignoredDirectoryBuilder strings.Builder
 			for _, ignoredDirectory := range ignoredDirectories {
@@ -80,7 +110,7 @@ func main() {
 
 			cmd := fmt.Sprintf("find %s -type f -not '(' -path '*/.git/*' -or -path '*/node_modules/*' -or -path '*/vendor/*'  -or -path '*/.build/*' -or -path '*/tmp/*' -or -path '*/.*/*' %s ')' -exec ls -alh {} \\; | sort -hr -k5 | head -n 25", path, ignoredDirectoryBuilder.String())
 			if debug {
-				fmt.Println("[INFO]", cmd)
+				fmt.Printf("[INFO] Running `%s`\n", cmd)
 			}
 			stdout, err := exec.Command("bash", "-c", cmd).Output()
 			if err != nil {
@@ -97,18 +127,19 @@ func main() {
 				path := l[8]
 				fileSize := l[4]
 
-				sizeToNumber := ConvertFileSizeToMb(fileSize)
+				fileSizeInPreferredUnit := ConvertFileSizeToPreferredUnit(fileSize, preferredUnit)
 
-				if sizeToNumber >= sizeToFloat {
-					Temp[path] = sizeToNumber
+				if fileSizeInPreferredUnit >= minimumFileSizeAsFloat {
+					Temp[path] = fileSizeInPreferredUnit
+				} else {
+					fmt.Printf("[INFO] IGNORED %s: %.4f%s\n", path, fileSizeInPreferredUnit, preferredUnit)
 				}
 			}
 			// Print the output
-
-			for size, path := range Temp {
-				fmt.Println(size, path)
+			for path, size := range Temp {
+				fmt.Printf("Found %s %.2f%s\n", path, size, preferredUnit)
 			}
-			SendNotification(googleChatUrl, debug, host)
+			SendNotification(googleChatUrl, debug, host, preferredUnit)
 			return nil
 		},
 	}
@@ -117,30 +148,63 @@ func main() {
 	}
 }
 
-func ConvertFileSizeToMb(fileSize string) float64 {
-	var sizeToNumber float64
-	if strings.Contains(fileSize, "K") {
-		fileSize = strings.Replace(fileSize, "K", "", -1)
-		sizeToNumber, _ = strconv.ParseFloat(fileSize, 64)
-		sizeToNumber = sizeToNumber / 1024
-
-	} else if strings.Contains(fileSize, "M") {
-		fileSize = strings.Replace(fileSize, "M", "", -1)
-		sizeToNumber, _ = strconv.ParseFloat(fileSize, 64)
-	} else if strings.Contains(fileSize, "G") {
-		fileSize = strings.Replace(fileSize, "G", "", -1)
-		sizeToNumber, _ = strconv.ParseFloat(fileSize, 64)
-		sizeToNumber = sizeToNumber * 1024
-	} else {
-		// Bytes
-		fileSize = strings.Replace(fileSize, "B", "", -1)
-		sizeToNumber, _ = strconv.ParseFloat(fileSize, 64)
-		sizeToNumber = sizeToNumber / 1024 / 1024
+func ConvertFileSizeToPreferredUnit(fileSize string, preferredUnit string) float64 {
+	replacer := strings.NewReplacer("K", "", "G", "", "M", "", "B", "")
+	fileSizeStripped := replacer.Replace(fileSize)
+	fileSizeToNumber, err := strconv.ParseFloat(fileSizeStripped, 64)
+	if err != nil {
+		log.Fatalln("Could not parse number")
+		return 0
 	}
-	return sizeToNumber
+	// File is already in the correct unit, return as-is
+	if strings.Contains(fileSize, preferredUnit) {
+		return fileSizeToNumber
+	}
+
+	fileUnit := "M"
+	if strings.Contains(fileSize, "G") {
+		fileUnit = "G"
+	} else if strings.Contains(fileSize, "K") {
+		fileUnit = "K"
+	} else if strings.Contains(fileSize, "B") {
+		fileUnit = "B"
+	}
+
+	// There is probably a much better way of doing this.
+	switch {
+	case fileUnit == "B" && preferredUnit == "K":
+		return fileSizeToNumber / 1024
+	case fileUnit == "B" && preferredUnit == "M":
+		return (fileSizeToNumber / 1024) / 1024
+	case fileUnit == "B" && preferredUnit == "G":
+		return (fileSizeToNumber / 1024) / 1024 / 1024
+
+	case fileUnit == "K" && preferredUnit == "B":
+		return fileSizeToNumber * 1024
+	case fileUnit == "K" && preferredUnit == "M":
+		return fileSizeToNumber / 1024
+	case fileUnit == "K" && preferredUnit == "G":
+		return (fileSizeToNumber / 1024) / 1024
+
+	case fileUnit == "M" && preferredUnit == "B":
+		return (fileSizeToNumber * 1024) * 1024
+	case fileUnit == "M" && preferredUnit == "K":
+		return fileSizeToNumber * 1024
+	case fileUnit == "M" && preferredUnit == "G":
+		return fileSizeToNumber / 1024
+
+	case fileUnit == "G" && preferredUnit == "B":
+		return ((fileSizeToNumber * 1024) * 1024) * 1024
+	case fileUnit == "G" && preferredUnit == "K":
+		return (fileSizeToNumber * 1024) * 1024
+	case fileUnit == "G" && preferredUnit == "M":
+		return fileSizeToNumber * 1024
+	}
+	log.Fatalf("Could not convert %s %s %s\n", fileSize, preferredUnit, fileUnit)
+	return 0.0
 }
 
-func SendNotification(googleChatUrl string, debug bool, host string) {
+func SendNotification(googleChatUrl string, debug bool, host string, preferredUnit string) {
 	if googleChatUrl == "" {
 		fmt.Println("[INFO] No Google Chat webhook was provided.")
 		return
@@ -158,7 +222,7 @@ func SendNotification(googleChatUrl string, debug bool, host string) {
 		text.WriteString("\n\n")
 	}
 	for path, size := range Temp {
-		text.WriteString(fmt.Sprintf("* %s: %.2fM\n", path, size))
+		text.WriteString(fmt.Sprintf("* %s: %.2f%s\n", path, size, preferredUnit))
 	}
 	text.WriteString("\"}")
 	json := []byte(text.String())
