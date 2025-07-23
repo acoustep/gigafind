@@ -34,7 +34,7 @@ func main() {
 
 	app := &cli.App{
 		Name:    "run",
-		Version: "v0.3.1",
+		Version: "v0.3.2",
 		Usage:   "Find directories with many files or files that are large",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
