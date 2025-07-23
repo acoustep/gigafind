@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var (
@@ -194,7 +195,9 @@ func main() {
 
 					sizeInPreferredUnit := ConvertFileSizeToPreferredUnit(sizeStr, preferredUnit)
 
-					if sizeInPreferredUnit >= minimumFileSizeAsFloat {
+                    if itemPath == "." {
+                    // Don't include the current directory
+					} else if sizeInPreferredUnit >= minimumFileSizeAsFloat {
 						Temp[itemPath] = int(sizeInPreferredUnit)
 					} else if debug {
 						fmt.Printf("[INFO] IGNORED %s: %.4f%s\n", itemPath, sizeInPreferredUnit, preferredUnit)
@@ -272,6 +275,7 @@ func ConvertFileSizeToPreferredUnit(fileSize string, preferredUnit string) float
 }
 
 func SendNotification(googleChatUrl string, debug bool, host string, unit string) {
+    t := time.Now()
 	if googleChatUrl == "" {
 		fmt.Println("[INFO] No Google Chat webhook was provided.")
 		return
@@ -283,19 +287,22 @@ func SendNotification(googleChatUrl string, debug bool, host string, unit string
 		return
 	}
 	var text strings.Builder
-	text.WriteString("{\"text\": \"")
-	if host != "" {
-		text.WriteString(host)
-		text.WriteString("\n\n")
-	}
+// 	text.WriteString("{\"text\": \"")
+	 text.WriteString("{\"cards\": [{\"header\": {\"title\": \"Gigafind\", \"subtitle\": \"🔴 ")
+	text.WriteString(host)
+	 text.WriteString(" - ")
+	 text.WriteString(t.Format(time.RFC3339))
+	 text.WriteString("\"},")
+     text.WriteString("\"sections\": [{ \"widgets\": [{ \"textParagraph\": { \"text\": \"")
 	for path, value := range Temp {
 		if unit == "files" {
-			text.WriteString(fmt.Sprintf("* %s: %d %s\n", path, value, unit))
+			text.WriteString(fmt.Sprintf("⋅ [file] <b>%s</b> %d %s\n", path, value, unit))
 		} else {
-			text.WriteString(fmt.Sprintf("* %s: %d%s\n", path, value, unit))
+			text.WriteString(fmt.Sprintf("⋅ [dir] <b>%s</b> %d%s\n", path, value, unit))
 		}
 	}
-	text.WriteString("\"}")
+// 	text.WriteString("\"}")
+     text.WriteString("\"}}]}]}]}")
 	json := []byte(text.String())
 	body := bytes.NewBuffer(json)
 	client := &http.Client{}
