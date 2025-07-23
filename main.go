@@ -131,7 +131,7 @@ func main() {
 				}
 				SendNotification(googleChatUrl, debug, host, "files")
 			} else {
-				// Original file size search logic
+				// File and directory size search logic
 				preferredUnit := "M"
 				if strings.Contains(minimumFileSize, "G") {
 					preferredUnit = "G"
@@ -151,32 +151,53 @@ func main() {
 				}
 
 				minimumFileSizeAsFloat := float64(minimumFileSizeToInt)
-				cmd := fmt.Sprintf("find %s -type f -not '(' -path '*/.git/*' -or -path '*/node_modules/*' -or -path '*/vendor/*'  -or -path '*/.build/*' -or -path '*/tmp/*' -or -path '*/.*/*' %s ')' -exec ls -alh {} \\; | sort -hr -k5 | head -n 25", path, ignoredDirectoryBuilder.String())
+				
+				// Search for large files
+				fileCmd := fmt.Sprintf("find %s -type f -not '(' -path '*/.git/*' -or -path '*/node_modules/*' -or -path '*/vendor/*'  -or -path '*/.build/*' -or -path '*/tmp/*' -or -path '*/.*/*' %s ')' -exec ls -alh {} \\;", path, ignoredDirectoryBuilder.String())
+				
+				// Search for large directories using du
+				dirCmd := fmt.Sprintf("find %s -type d -not '(' -path '*/.git/*' -or -path '*/node_modules/*' -or -path '*/vendor/*'  -or -path '*/.build/*' -or -path '*/tmp/*' -or -path '*/.*/*' %s ')' -exec du -sh {} \\;", path, ignoredDirectoryBuilder.String())
+				
+				// Combine both commands
+				combinedCmd := fmt.Sprintf("({ %s; %s; } | sort -hr -k1 | head -n 25)", fileCmd, dirCmd)
 				
 				if debug {
-					fmt.Printf("[INFO] Running `%s`\n", cmd)
+					fmt.Printf("[INFO] Running `%s`\n", combinedCmd)
 				}
-				stdout, err := exec.Command("bash", "-c", cmd).Output()
+				stdout, err := exec.Command("bash", "-c", combinedCmd).Output()
 				if err != nil {
-					fmt.Printf("Failed to execute command: %s %s", err.Error(), cmd)
+					fmt.Printf("Failed to execute command: %s %s", err.Error(), combinedCmd)
 					return nil
 				}
 
 				lines := strings.Split(string(stdout), "\n")
 				for _, line := range lines {
-					l := strings.Fields(line)
-					if len(l) < 9 {
+					if strings.TrimSpace(line) == "" {
 						continue
 					}
-					filePath := l[8]
-					fileSize := l[4]
+					
+					fields := strings.Fields(line)
+					if len(fields) < 2 {
+						continue
+					}
+					
+					var itemPath, sizeStr string
+					if len(fields) >= 9 && strings.Contains(line, "-") {
+						// This is a file from ls -alh output
+						itemPath = fields[8]
+						sizeStr = fields[4]
+					} else {
+						// This is a directory from du -sh output
+						sizeStr = fields[0]
+						itemPath = strings.Join(fields[1:], " ")
+					}
 
-					fileSizeInPreferredUnit := ConvertFileSizeToPreferredUnit(fileSize, preferredUnit)
+					sizeInPreferredUnit := ConvertFileSizeToPreferredUnit(sizeStr, preferredUnit)
 
-					if fileSizeInPreferredUnit >= minimumFileSizeAsFloat {
-						Temp[filePath] = int(fileSizeInPreferredUnit)
+					if sizeInPreferredUnit >= minimumFileSizeAsFloat {
+						Temp[itemPath] = int(sizeInPreferredUnit)
 					} else if debug {
-						fmt.Printf("[INFO] IGNORED %s: %.4f%s\n", filePath, fileSizeInPreferredUnit, preferredUnit)
+						fmt.Printf("[INFO] IGNORED %s: %.4f%s\n", itemPath, sizeInPreferredUnit, preferredUnit)
 					}
 				}
 				
