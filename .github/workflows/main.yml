@@ -6,12 +6,11 @@ on:
       - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
 
 permissions:
-    contents: write
-    packages: write
+  contents: write
 
 jobs:
-  releases-matrix:
-    name: Release Go Binary
+  build-and-release:
+    name: Build and Release
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -19,13 +18,25 @@ jobs:
         goos: [linux]
         goarch: [amd64, arm64]
     steps:
-    - uses: actions/checkout@v4
-    - uses: wangyoucao577/go-release-action@v1
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
       with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        goos: ${{ matrix.goos }}
-        goarch: ${{ matrix.goarch }}
-        goversion: "1.21.4"
-        project_path: "."
-        binary_name: "gigafind"
-        extra_files: README.md
+        go-version: '1.21.4'
+    
+    - name: Build binary
+      run: |
+        GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o gigafind-${{ matrix.goos }}-${{ matrix.goarch }} .
+    
+    - name: Create archive
+      run: |
+        tar -czf gigafind-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz gigafind-${{ matrix.goos }}-${{ matrix.goarch }} README.md CLAUDE.md
+    
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: gigafind-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
