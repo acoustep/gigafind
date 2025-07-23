@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,44 @@ import (
 var (
 	Temp = map[string]int{}
 )
+
+// shouldIgnoreDirectory checks if a directory should be ignored based on patterns
+// Ignores top-level directories and user home directories like /home/user
+func shouldIgnoreDirectory(path string) bool {
+	// Clean the path to handle any relative paths or extra slashes
+	cleanPath := filepath.Clean(path)
+	
+	// Split the path into components
+	parts := strings.Split(strings.TrimPrefix(cleanPath, "/"), "/")
+	
+	// Ignore top-level directories (single component paths like /usr, /var, /home, etc.)
+	if len(parts) == 1 && parts[0] == "home" {
+        return true
+	}
+
+    // Ignore '.'
+	if len(parts) == 1 && parts[0] == "." {
+        return true
+	}
+
+	// Ignore user home directories like /home/username
+	if len(parts) == 2 && parts[0] == "home" {
+		return true
+	}
+	
+	// Get the directory name (last component of the path)
+	dirName := filepath.Base(cleanPath)
+	
+	// Ignore specific directory names
+	ignoredDirs := []string{"wp-content", "web", "public_html", "storage", "webapps", "app", "releases"}
+	for _, ignored := range ignoredDirs {
+		if dirName == ignored {
+			return true
+		}
+	}
+	
+	return false
+}
 
 func main() {
 	var path string
@@ -34,7 +73,7 @@ func main() {
 
 	app := &cli.App{
 		Name:    "run",
-		Version: "v0.3.3",
+		Version: "v0.3.4",
 		Usage:   "Find directories with many files or files that are large",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -119,7 +158,9 @@ func main() {
 					}
 					dirPath := strings.Join(fields[1:], " ")
 					
-					if fileCount >= minimumFileCount {
+					if shouldIgnoreDirectory(dirPath) {
+						// Skip top-level directories and user home directories
+					} else if fileCount >= minimumFileCount {
 						Temp[dirPath] = fileCount
 					} else if debug {
 						fmt.Printf("[INFO] IGNORED %s: %d files\n", dirPath, fileCount)
@@ -197,6 +238,10 @@ func main() {
 
                     if itemPath == "." {
                     // Don't include the current directory
+					} else if shouldIgnoreDirectory(itemPath) {
+
+                    fmt.Printf("[INFO] IGNORED %s\n", itemPath)
+					// Skip top-level directories and user home directories
 					} else if sizeInPreferredUnit >= minimumFileSizeAsFloat {
 						Temp[itemPath] = int(sizeInPreferredUnit)
 					} else if debug {
@@ -296,9 +341,9 @@ func SendNotification(googleChatUrl string, debug bool, host string, unit string
      text.WriteString("\"sections\": [{ \"widgets\": [{ \"textParagraph\": { \"text\": \"")
 	for path, value := range Temp {
 		if unit == "files" {
-			text.WriteString(fmt.Sprintf("⋅ [file] <b>%s</b> %d %s\n", path, value, unit))
+			text.WriteString(fmt.Sprintf("⋅ 📁 <b>%s</b> %d %s\n", path, value, unit))
 		} else {
-			text.WriteString(fmt.Sprintf("⋅ [dir] <b>%s</b> %d%s\n", path, value, unit))
+			text.WriteString(fmt.Sprintf("⋅ 📁 <b>%s</b> %d%s\n", path, value, unit))
 		}
 	}
 // 	text.WriteString("\"}")
