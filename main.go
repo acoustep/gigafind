@@ -14,13 +14,14 @@ import (
 )
 
 var (
-	Temp = map[string]float64{}
+	Temp = map[string]int{}
 )
 
 func main() {
 	var path string
 	var host string
 	var minimumFileSize string
+	var minimumFileCount int
 	var debug bool
 	var googleChatUrl string
 
@@ -32,8 +33,8 @@ func main() {
 
 	app := &cli.App{
 		Name:    "run",
-		Version: "v0.2.5",
-		Usage:   "Find files that are large",
+		Version: "v0.3.0",
+		Usage:   "Find directories with many files or files that are large",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:        "path",
@@ -48,6 +49,13 @@ func main() {
 				Usage:       "The minimum file size of the files to show. Anything below is ignored",
 				Destination: &minimumFileSize,
 				Value:       "200MB",
+			},
+			&cli.IntFlag{
+				Name:        "minimum-file-count",
+				Aliases:     []string{"c"},
+				Usage:       "Find directories with at least this many files. Use instead of file size search",
+				Destination: &minimumFileCount,
+				Value:       500,
 			},
 
 			&cli.BoolFlag{
@@ -78,68 +86,106 @@ func main() {
 			},
 		},
 		Action: func(cCtx *cli.Context) error {
-			// First lets get the unit type from the minimum file type.
-			// This will be anything from byte to Gigabyte
-			preferredUnit := "M"
-			if strings.Contains(minimumFileSize, "G") {
-				preferredUnit = "G"
-			} else if strings.Contains(minimumFileSize, "K") {
-				preferredUnit = "K"
-			} else if strings.Contains(minimumFileSize, "B") {
-				preferredUnit = "B"
-			}
-
-			// Now we try to get the actual number. We do this by stripping out the unit (e.g. MB)
-			// Then parsing as an integer
-			replacer := strings.NewReplacer("K", "", "G", "", "M", "", "B", "")
-			minimumFileSizeStripped := replacer.Replace(minimumFileSize)
-			minimumFileSizeToInt, err := strconv.ParseInt(minimumFileSizeStripped, 10, 64)
-
-			if err != nil {
-				log.Fatalln("Could not parse number")
-				return nil
-			}
-
-			//	// Set up a command to run
-			minimumFileSizeAsFloat := float64(minimumFileSizeToInt)
 			ignoredDirectories := cCtx.StringSlice("exclude")
 			var ignoredDirectoryBuilder strings.Builder
 			for _, ignoredDirectory := range ignoredDirectories {
 				ignoredDirectoryBuilder.WriteString(fmt.Sprintf(" -or -path '%s'", ignoredDirectory))
 			}
 
-			cmd := fmt.Sprintf("find %s -type f -not '(' -path '*/.git/*' -or -path '*/node_modules/*' -or -path '*/vendor/*'  -or -path '*/.build/*' -or -path '*/tmp/*' -or -path '*/.*/*' %s ')' -exec ls -alh {} \\; | sort -hr -k5 | head -n 25", path, ignoredDirectoryBuilder.String())
-			if debug {
-				fmt.Printf("[INFO] Running `%s`\n", cmd)
-			}
-			stdout, err := exec.Command("bash", "-c", cmd).Output()
-			if err != nil {
-				fmt.Printf("Failed to execute command: %s %s", err.Error(), cmd)
-				return nil
-			}
-
-			lines := strings.Split(string(stdout), "\n")
-			for _, line := range lines {
-				l := strings.Fields(line)
-				if len(l) < 2 {
-					break
+			// Check if we should search by file count or file size
+			if minimumFileCount > 0 && minimumFileSize == "200MB" {
+				// Search for directories with many files
+				cmd := fmt.Sprintf("find %s -type d -not '(' -path '*/.git/*' -or -path '*/node_modules/*' -or -path '*/vendor/*' -or -path '*/.build/*' -or -path '*/tmp/*' -or -path '*/.*/*' %s ')' -exec sh -c 'count=$(find \"$1\" -maxdepth 1 -type f | wc -l); echo \"$count $1\"' _ {} \\; | sort -nr | head -n 25", path, ignoredDirectoryBuilder.String())
+				
+				if debug {
+					fmt.Printf("[INFO] Running `%s`\n", cmd)
 				}
-				path := l[8]
-				fileSize := l[4]
-
-				fileSizeInPreferredUnit := ConvertFileSizeToPreferredUnit(fileSize, preferredUnit)
-
-				if fileSizeInPreferredUnit >= minimumFileSizeAsFloat {
-					Temp[path] = fileSizeInPreferredUnit
-				} else {
-					fmt.Printf("[INFO] IGNORED %s: %.4f%s\n", path, fileSizeInPreferredUnit, preferredUnit)
+				stdout, err := exec.Command("bash", "-c", cmd).Output()
+				if err != nil {
+					fmt.Printf("Failed to execute command: %s %s", err.Error(), cmd)
+					return nil
 				}
+
+				lines := strings.Split(string(stdout), "\n")
+				for _, line := range lines {
+					fields := strings.Fields(line)
+					if len(fields) < 2 {
+						continue
+					}
+					fileCount, err := strconv.Atoi(fields[0])
+					if err != nil {
+						continue
+					}
+					dirPath := strings.Join(fields[1:], " ")
+					
+					if fileCount >= minimumFileCount {
+						Temp[dirPath] = fileCount
+					} else if debug {
+						fmt.Printf("[INFO] IGNORED %s: %d files\n", dirPath, fileCount)
+					}
+				}
+				
+				// Print the output
+				for path, count := range Temp {
+					fmt.Printf("Found %s with %d files\n", path, count)
+				}
+				SendNotification(googleChatUrl, debug, host, "files")
+			} else {
+				// Original file size search logic
+				preferredUnit := "M"
+				if strings.Contains(minimumFileSize, "G") {
+					preferredUnit = "G"
+				} else if strings.Contains(minimumFileSize, "K") {
+					preferredUnit = "K"
+				} else if strings.Contains(minimumFileSize, "B") {
+					preferredUnit = "B"
+				}
+
+				replacer := strings.NewReplacer("K", "", "G", "", "M", "", "B", "")
+				minimumFileSizeStripped := replacer.Replace(minimumFileSize)
+				minimumFileSizeToInt, err := strconv.ParseInt(minimumFileSizeStripped, 10, 64)
+
+				if err != nil {
+					log.Fatalln("Could not parse number")
+					return nil
+				}
+
+				minimumFileSizeAsFloat := float64(minimumFileSizeToInt)
+				cmd := fmt.Sprintf("find %s -type f -not '(' -path '*/.git/*' -or -path '*/node_modules/*' -or -path '*/vendor/*'  -or -path '*/.build/*' -or -path '*/tmp/*' -or -path '*/.*/*' %s ')' -exec ls -alh {} \\; | sort -hr -k5 | head -n 25", path, ignoredDirectoryBuilder.String())
+				
+				if debug {
+					fmt.Printf("[INFO] Running `%s`\n", cmd)
+				}
+				stdout, err := exec.Command("bash", "-c", cmd).Output()
+				if err != nil {
+					fmt.Printf("Failed to execute command: %s %s", err.Error(), cmd)
+					return nil
+				}
+
+				lines := strings.Split(string(stdout), "\n")
+				for _, line := range lines {
+					l := strings.Fields(line)
+					if len(l) < 9 {
+						continue
+					}
+					filePath := l[8]
+					fileSize := l[4]
+
+					fileSizeInPreferredUnit := ConvertFileSizeToPreferredUnit(fileSize, preferredUnit)
+
+					if fileSizeInPreferredUnit >= minimumFileSizeAsFloat {
+						Temp[filePath] = int(fileSizeInPreferredUnit)
+					} else if debug {
+						fmt.Printf("[INFO] IGNORED %s: %.4f%s\n", filePath, fileSizeInPreferredUnit, preferredUnit)
+					}
+				}
+				
+				// Print the output
+				for path, size := range Temp {
+					fmt.Printf("Found %s %.2f%s\n", path, float64(size), preferredUnit)
+				}
+				SendNotification(googleChatUrl, debug, host, preferredUnit)
 			}
-			// Print the output
-			for path, size := range Temp {
-				fmt.Printf("Found %s %.2f%s\n", path, size, preferredUnit)
-			}
-			SendNotification(googleChatUrl, debug, host, preferredUnit)
 			return nil
 		},
 	}
@@ -204,7 +250,7 @@ func ConvertFileSizeToPreferredUnit(fileSize string, preferredUnit string) float
 	return 0.0
 }
 
-func SendNotification(googleChatUrl string, debug bool, host string, preferredUnit string) {
+func SendNotification(googleChatUrl string, debug bool, host string, unit string) {
 	if googleChatUrl == "" {
 		fmt.Println("[INFO] No Google Chat webhook was provided.")
 		return
@@ -221,8 +267,12 @@ func SendNotification(googleChatUrl string, debug bool, host string, preferredUn
 		text.WriteString(host)
 		text.WriteString("\n\n")
 	}
-	for path, size := range Temp {
-		text.WriteString(fmt.Sprintf("* %s: %.2f%s\n", path, size, preferredUnit))
+	for path, value := range Temp {
+		if unit == "files" {
+			text.WriteString(fmt.Sprintf("* %s: %d %s\n", path, value, unit))
+		} else {
+			text.WriteString(fmt.Sprintf("* %s: %d%s\n", path, value, unit))
+		}
 	}
 	text.WriteString("\"}")
 	json := []byte(text.String())
