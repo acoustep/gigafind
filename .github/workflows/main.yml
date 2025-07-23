@@ -32,7 +32,7 @@ jobs:
     
     - name: Create archive
       run: |
-        tar -czf gigafind-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz gigafind-${{ matrix.goos }}-${{ matrix.goarch }} README.md CLAUDE.md
+        tar -czf gigafind-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz gigafind-${{ matrix.goos }}-${{ matrix.goarch }} README.md
     
     - name: Release
       uses: softprops/action-gh-release@v1
