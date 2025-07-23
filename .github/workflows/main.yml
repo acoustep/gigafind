@@ -28,4 +28,4 @@ jobs:
         goversion: "1.21.4"
         project_path: "."
         binary_name: "gigafind"
-        extra_files: README.md CLAUDE.md
+        extra_files: README.md
