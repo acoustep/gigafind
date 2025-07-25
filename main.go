@@ -21,7 +21,8 @@ type FileInfo struct {
 }
 
 var (
-	Temp = map[string]FileInfo{}
+	Temp    = map[string]FileInfo{}
+	version = "v0.3.6"
 )
 
 // shouldIgnoreDirectory checks if a directory should be ignored based on patterns
@@ -29,18 +30,18 @@ var (
 func shouldIgnoreDirectory(path string) bool {
 	// Clean the path to handle any relative paths or extra slashes
 	cleanPath := filepath.Clean(path)
-	
+
 	// Split the path into components
 	parts := strings.Split(strings.TrimPrefix(cleanPath, "/"), "/")
 
 	// Ignore top-level directories (single component paths like /usr, /var, /home, etc.)
 	if len(parts) == 1 && parts[0] == "home" {
-        return true
+		return true
 	}
 
-    // Ignore '.'
+	// Ignore '.'
 	if len(parts) == 1 && parts[0] == "." {
-        return true
+		return true
 	}
 
 	// Ignore user home directories like /home/username
@@ -48,13 +49,13 @@ func shouldIgnoreDirectory(path string) bool {
 		return true
 	}
 
-    if len(parts) == 4 && parts[2] == "webapps" {
+	if len(parts) == 4 && parts[2] == "webapps" {
 		return true
 	}
-	
+
 	// Get the directory name (last component of the path)
 	dirName := filepath.Base(cleanPath)
-	
+
 	// Ignore specific directory names
 	ignoredDirs := []string{"wp-content", "web", "public_html", "storage", "webapps", "app", "releases"}
 	for _, ignored := range ignoredDirs {
@@ -62,7 +63,7 @@ func shouldIgnoreDirectory(path string) bool {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -83,7 +84,7 @@ func main() {
 
 	app := &cli.App{
 		Name:    "run",
-		Version: "v0.3.5",
+		Version: version,
 		Usage:   "Find directories with many files or files that are large",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -152,7 +153,7 @@ func main() {
 			if minimumFileCount > 0 && minimumFileSize == "200MB" && minimumDirSize == "" {
 				// Search for directories with many files
 				cmd := fmt.Sprintf("find %s -type d -not '(' -path '*/.git/*' -or -path '*/node_modules/*' -or -path '*/vendor/*' -or -path '*/.build/*' -or -path '*/tmp/*' -or -path '*/.*/*' %s ')' -exec sh -c 'count=$(find \"$1\" -maxdepth 1 -type f | wc -l); echo \"$count $1\"' _ {} \\; | sort -nr | head -n 25", path, ignoredDirectoryBuilder.String())
-				
+
 				if debug {
 					fmt.Printf("[INFO] Running `%s`\n", cmd)
 				}
@@ -173,7 +174,7 @@ func main() {
 						continue
 					}
 					dirPath := strings.Join(fields[1:], " ")
-					
+
 					if shouldIgnoreDirectory(dirPath) {
 						// Skip top-level directories and user home directories
 					} else if fileCount >= minimumFileCount {
@@ -182,7 +183,7 @@ func main() {
 						fmt.Printf("[INFO] IGNORED %s: %d files\n", dirPath, fileCount)
 					}
 				}
-				
+
 				// Print the output
 				for path, info := range Temp {
 					fmt.Printf("Found %s with %d files\n", path, info.Size)
@@ -209,16 +210,16 @@ func main() {
 				}
 
 				minimumFileSizeAsFloat := float64(minimumFileSizeToInt)
-				
+
 				// Search for large files
 				fileCmd := fmt.Sprintf("find %s -type f -not '(' -path '*/.git/*' -or -path '*/node_modules/*' -or -path '*/vendor/*'  -or -path '*/.build/*' -or -path '*/tmp/*' -or -path '*/.*/*' %s ')' -exec ls -alh {} \\;", path, ignoredDirectoryBuilder.String())
-				
+
 				// Search for large directories using du
 				dirCmd := fmt.Sprintf("find %s -type d -not '(' -path '*/.git/*' -or -path '*/node_modules/*' -or -path '*/vendor/*'  -or -path '*/.build/*' -or -path '*/tmp/*' -or -path '*/.*/*' %s ')' -exec du -sh {} \\;", path, ignoredDirectoryBuilder.String())
-				
+
 				// Combine both commands
 				combinedCmd := fmt.Sprintf("({ %s; %s; } | sort -hr -k1 | head -n 25)", fileCmd, dirCmd)
-				
+
 				if debug {
 					fmt.Printf("[INFO] Running `%s`\n", combinedCmd)
 				}
@@ -246,12 +247,12 @@ func main() {
 					if strings.TrimSpace(line) == "" {
 						continue
 					}
-					
+
 					fields := strings.Fields(line)
 					if len(fields) < 2 {
 						continue
 					}
-					
+
 					var itemPath, sizeStr string
 					var isFile bool
 					if len(fields) >= 9 && strings.Contains(line, "-") {
@@ -268,13 +269,13 @@ func main() {
 
 					sizeInPreferredUnit := ConvertFileSizeToPreferredUnit(sizeStr, preferredUnit)
 
-                    if itemPath == "." {
-                    // Don't include the current directory
+					if itemPath == "." {
+						// Don't include the current directory
 					} else if shouldIgnoreDirectory(itemPath) {
 						if debug {
 							fmt.Printf("[INFO] IGNORED %s\n", itemPath)
 						}
-					// Skip top-level directories and user home directories
+						// Skip top-level directories and user home directories
 					} else if isFile && sizeInPreferredUnit >= minimumFileSizeAsFloat {
 						// File meets file size threshold
 						Temp[itemPath] = FileInfo{Size: int(sizeInPreferredUnit), IsFile: isFile}
@@ -288,7 +289,7 @@ func main() {
 						fmt.Printf("[INFO] IGNORED %s: %.4f%s\n", itemPath, sizeInPreferredUnit, preferredUnit)
 					}
 				}
-				
+
 				// Print the output
 				for path, info := range Temp {
 					itemType := "directory"
@@ -364,7 +365,7 @@ func ConvertFileSizeToPreferredUnit(fileSize string, preferredUnit string) float
 }
 
 func SendNotification(googleChatUrl string, debug bool, host string, unit string) {
-    t := time.Now()
+	t := time.Now()
 	if googleChatUrl == "" {
 		fmt.Println("[INFO] No Google Chat webhook was provided.")
 		return
@@ -376,13 +377,16 @@ func SendNotification(googleChatUrl string, debug bool, host string, unit string
 		return
 	}
 	var text strings.Builder
-// 	text.WriteString("{\"text\": \"")
-	 text.WriteString("{\"cards\": [{\"header\": {\"title\": \"Gigafind\", \"subtitle\": \"🔴 ")
+	// 	text.WriteString("{\"text\": \"")
+	text.WriteString("{\"cards\": [{\"header\": {\"title\": \"Gigafind - ")
+
+	text.WriteString(version)
+	text.WriteString("\", \"subtitle\": \"🔴 ")
 	text.WriteString(host)
-	 text.WriteString(" - ")
-	 text.WriteString(t.Format(time.RFC3339))
-	 text.WriteString("\"},")
-     text.WriteString("\"sections\": [{ \"widgets\": [{ \"textParagraph\": { \"text\": \"")
+	text.WriteString(" - ")
+	text.WriteString(t.Format(time.RFC3339))
+	text.WriteString("\"},")
+	text.WriteString("\"sections\": [{ \"widgets\": [{ \"textParagraph\": { \"text\": \"")
 	for path, info := range Temp {
 		icon := "📁"
 		if info.IsFile {
@@ -394,8 +398,8 @@ func SendNotification(googleChatUrl string, debug bool, host string, unit string
 			text.WriteString(fmt.Sprintf("⋅ %s <b>%s</b> %d%s\n", icon, path, info.Size, unit))
 		}
 	}
-// 	text.WriteString("\"}")
-     text.WriteString("\"}}]}]}]}")
+	// 	text.WriteString("\"}")
+	text.WriteString("\"}}]}]}]}")
 	json := []byte(text.String())
 	body := bytes.NewBuffer(json)
 	client := &http.Client{}
